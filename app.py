@@ -129,17 +129,31 @@ class ProfiApp:
             filtered_orders = await filter_orders(new_orders)
             logger.info(f"После фильтрации осталось {len(filtered_orders)} новых заказов")
             
+            if not filtered_orders:
+                logger.info("После фильтрации не осталось заказов для отправки")
+                return
+            
             # Отправляем отфильтрованные новые заказы
             sent_count = 0
+            failed_count = 0
             for order in filtered_orders:
                 try:
-                    logger.info(f"Отправляем новый заказ: {order.get('id', 'без ID')} - {order.get('title', 'Без названия')[:50]}")
+                    order_id = order.get('id', 'без ID')
+                    order_title = order.get('title', 'Без названия')[:50]
+                    logger.info(f"Отправляем новый заказ: {order_id} - {order_title}")
+                    
                     await self.bot.send_order(order)
                     sent_count += 1
+                    logger.info(f"✅ Заказ {order_id} успешно отправлен в Telegram")
+                    
+                    # Небольшая задержка между отправками для избежания flood control
+                    await asyncio.sleep(1)
+                    
                 except Exception as e:
-                    logger.error(f"Ошибка при отправке заказа {order.get('id', 'без ID')}: {str(e)}")
+                    failed_count += 1
+                    logger.error(f"❌ Ошибка при отправке заказа {order.get('id', 'без ID')}: {str(e)}", exc_info=True)
             
-            logger.info(f"Отправлено {sent_count} новых заказов из {len(filtered_orders)}")
+            logger.info(f"📤 Итоговая статистика отправки: отправлено {sent_count} из {len(filtered_orders)}, ошибок: {failed_count}")
             
         except Exception as e:
             logger.error(f"Ошибка при обработке заказов: {str(e)}")

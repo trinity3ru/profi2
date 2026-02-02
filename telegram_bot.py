@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 import json
 import asyncio
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 # Настройка логирования
 logging.basicConfig(
@@ -18,13 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Жестко задаем ID группы
-TELEGRAM_CHAT_ID = -1002255252099  # Используем ID из конфигурации
-
 class ProfiBot:
     def __init__(self):
         """Инициализация бота"""
-        self.is_running = False
+        self.is_running = True  # Устанавливаем True по умолчанию для автоматической работы
         
         # Простая инициализация для совместимости без JobQueue
         self.application = (
@@ -156,9 +153,10 @@ class ProfiBot:
         Args:
             order (dict): Словарь с информацией о заказе
         """
-        if not self.is_running:
-            logger.info("Бот остановлен, заказ не отправлен")
-            return
+        # Убираем проверку is_running - она блокирует отправку при автоматической работе
+        # if not self.is_running:
+        #     logger.info("Бот остановлен, заказ не отправлен")
+        #     return
             
         # Формируем базовое сообщение с заголовком
         message_parts = [
@@ -243,15 +241,21 @@ class ProfiBot:
             #     )
             
             # Отправляем только текстовое сообщение
-            logger.info(f"Отправка текстового сообщения. ID заказа: {order.get('id', 'без ID')}")
-            await self.application.bot.send_message(
+            logger.info(f"Отправка текстового сообщения. ID заказа: {order.get('id', 'без ID')}, Chat ID: {TELEGRAM_CHAT_ID}")
+            
+            # Проверяем, что бот инициализирован
+            if not self.application.bot:
+                logger.error("Бот не инициализирован, невозможно отправить сообщение")
+                return
+            
+            result = await self.application.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=message,
                 parse_mode='Markdown',
                 disable_web_page_preview=True
             )
             
-            logger.info(f"Заказ {order.get('id', 'без ID')} от {order.get('date_posted', 'неизвестной даты')} успешно отправлен в группу {TELEGRAM_CHAT_ID}")
+            logger.info(f"✅ Заказ {order.get('id', 'без ID')} от {order.get('date_posted', 'неизвестной даты')} успешно отправлен в группу {TELEGRAM_CHAT_ID}. Message ID: {result.message_id}")
             
         except Exception as e:
             error_msg = str(e)

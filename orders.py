@@ -233,10 +233,13 @@ async def get_orders(driver):
             return []
         
         # Получаем все заказы с повторными попытками при stale element
+        # Ищем ссылки на заказы по data-testid (основной способ для новой структуры)
         order_selectors = [
-            'div[class*="OrderSnippetStyles__CardContainer"]',  # Без динамического ID
-            'div[data-testid="ORDER_SNIPPET"]',
-            'div[class*="OrderSnippetContainerStyles__Container"]'  # Без динамического ID
+            'a[data-testid*="_order-snippet"]',  # Основной селектор - ссылки с data-testid
+            'a[href*="/backoffice/n.php?o="]',    # Альтернативный - по URL
+            'div[class*="OrderSnippetStyles__CardContainer"]',  # Fallback - контейнеры
+            'div[data-testid="ORDER_SNIPPET"]',   # Fallback - по data-testid контейнера
+            'div[class*="OrderSnippetContainerStyles__Container"]'  # Fallback - контейнеры
         ]
         
         max_retries = 3
@@ -246,22 +249,38 @@ async def get_orders(driver):
         while retry_count < max_retries:
             try:
                 for selector in order_selectors:
-                    elements = WebDriverWait(driver, SELENIUM_IMPLICIT_WAIT).until(
-                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
-                    )
-                    if elements:
-                        order_elements = elements
-                        logger.info(f"Найдены элементы заказов по селектору: {selector}")
-                        break
+                    try:
+                        elements = WebDriverWait(driver, SELENIUM_IMPLICIT_WAIT).until(
+                            EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
+                        )
+                        if elements and len(elements) > 0:
+                            order_elements = elements
+                            logger.info(f"Найдены элементы заказов по селектору: {selector} (количество: {len(elements)})")
+                            break
+                    except TimeoutException:
+                        logger.debug(f"Селектор {selector} не нашел элементы, пробуем следующий...")
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Ошибка при поиске по селектору {selector}: {str(e)}")
+                        continue
+                
                 if order_elements:
                     break
+                else:
+                    raise Exception("Не найдено ни одного элемента заказа")
+                    
             except Exception as e:
                 retry_count += 1
                 logger.warning(f"Попытка {retry_count} получения заказов не удалась: {str(e)}")
                 if retry_count < max_retries:
-                    await async_sleep(1)  # Ждем перед следующей попыткой
-                    driver.refresh()  # Обновляем страницу
-                    await async_sleep(1)  # Ждем загрузки
+                    await async_sleep(2)  # Увеличиваем задержку перед следующей попыткой
+                    # Не обновляем страницу, просто ждем - возможно элементы еще загружаются
+                    try:
+                        # Прокручиваем страницу вниз для загрузки динамического контента
+                        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                        await async_sleep(2)
+                    except:
+                        pass
                 else:
                     logger.error("Не удалось получить заказы после всех попыток")
                     return []
@@ -280,32 +299,54 @@ async def get_orders(driver):
         logger.info("Получаем все данные элементов заказов...")
         
         # Фильтруем элементы - обрабатываем только те, которые содержат настоящие заказы
+        # Если это ссылки (a), проверяем наличие data-testid или href с параметром o=
+        # Если это контейнеры (div), проверяем наличие заголовка и даты
         valid_order_elements = []
         
         for i, element in enumerate(order_elements):
             try:
-                # Проверяем, содержит ли элемент заголовок заказа
-                has_title = False
-                has_date = False
+                tag_name = element.tag_name.lower()
+                is_valid = False
                 
-                try:
-                    # Ищем заголовок по точному паттерну класса
-                    title_element = element.find_element(By.CSS_SELECTOR, 'h3[class*="SubjectAndPriceStyles__SubjectsText"]')
-                    has_title = True
-                    logger.debug(f"Элемент {i+1}: Найден заголовок заказа")
-                except:
-                    logger.debug(f"Элемент {i+1}: Заголовок заказа не найден")
+                # Если это ссылка (a), проверяем наличие data-testid или href
+                if tag_name == 'a':
+                    data_testid = element.get_attribute('data-testid')
+                    href = element.get_attribute('href')
+                    
+                    # Проверяем, что это ссылка на заказ
+                    if data_testid and '_order-snippet' in data_testid:
+                        is_valid = True
+                        logger.debug(f"Элемент {i+1} (ссылка): Найден data-testid заказа: {data_testid}")
+                    elif href and ('/backoffice/n.php?o=' in href or '/order/' in href):
+                        is_valid = True
+                        logger.debug(f"Элемент {i+1} (ссылка): Найден href заказа: {href}")
                 
-                try:
-                    # Ищем дату по точному паттерну класса
-                    date_element = element.find_element(By.CSS_SELECTOR, '[class*="Date__DateText"]')
-                    has_date = True
-                    logger.debug(f"Элемент {i+1}: Найдена дата заказа")
-                except:
-                    logger.debug(f"Элемент {i+1}: Дата заказа не найдена")
+                # Если это контейнер (div), проверяем наличие заголовка и даты
+                elif tag_name == 'div':
+                    has_title = False
+                    has_date = False
+                    
+                    try:
+                        # Ищем заголовок по точному паттерну класса
+                        title_element = element.find_element(By.CSS_SELECTOR, 'h3[class*="SubjectAndPriceStyles__SubjectsText"]')
+                        has_title = True
+                        logger.debug(f"Элемент {i+1} (контейнер): Найден заголовок заказа")
+                    except:
+                        logger.debug(f"Элемент {i+1} (контейнер): Заголовок заказа не найден")
+                    
+                    try:
+                        # Ищем дату по точному паттерну класса
+                        date_element = element.find_element(By.CSS_SELECTOR, '[class*="Date__DateText"]')
+                        has_date = True
+                        logger.debug(f"Элемент {i+1} (контейнер): Найдена дата заказа")
+                    except:
+                        logger.debug(f"Элемент {i+1} (контейнер): Дата заказа не найдена")
+                    
+                    # Добавляем элемент только если он содержит и заголовок, и дату
+                    if has_title and has_date:
+                        is_valid = True
                 
-                # Добавляем элемент только если он содержит и заголовок, и дату
-                if has_title and has_date:
+                if is_valid:
                     valid_order_elements.append(element)
                     logger.info(f"Элемент {i+1}: Добавлен как валидный заказ")
                 else:
@@ -356,17 +397,25 @@ async def get_orders(driver):
                         element_text = ""
                     
                     # Получаем ссылки
+                    links_data = []
                     try:
-                        # Ищем ссылки по частичному совпадению класса и атрибута
-                        link_elements = element.find_elements(By.CSS_SELECTOR, 'a[data-testid*="_order-snippet"], a[href*="/order/"], a[href*="o="]')
-                        links_data = []
-                        for link in link_elements:
-                            try:
-                                href = link.get_attribute('href')
-                                data_testid = link.get_attribute('data-testid')
+                        # Если элемент сам является ссылкой (a), используем его атрибуты
+                        if element.tag_name.lower() == 'a':
+                            href = element.get_attribute('href')
+                            data_testid = element.get_attribute('data-testid')
+                            if href or data_testid:
                                 links_data.append({'href': href, 'data-testid': data_testid})
-                            except:
-                                continue
+                                logger.debug(f"Элемент {i+1} - ссылка: href={href}, data-testid={data_testid}")
+                        else:
+                            # Ищем ссылки внутри контейнера
+                            link_elements = element.find_elements(By.CSS_SELECTOR, 'a[data-testid*="_order-snippet"], a[href*="/order/"], a[href*="o="], a[href*="/backoffice/n.php"]')
+                            for link in link_elements:
+                                try:
+                                    href = link.get_attribute('href')
+                                    data_testid = link.get_attribute('data-testid')
+                                    links_data.append({'href': href, 'data-testid': data_testid})
+                                except:
+                                    continue
                     except Exception as e:
                         logger.debug(f"Ошибка при получении ссылок элемента {i+1}: {str(e)}")
                         links_data = []
@@ -381,46 +430,81 @@ async def get_orders(driver):
                         logger.warning(f"❌ Заказ {i+1}: ID не найден")
                     
                     # Получаем заголовок
+                    title = 'Без названия'
                     try:
-                        # Ищем заголовок по точному паттерну класса
-                        title_element = element.find_element(By.CSS_SELECTOR, 'h3[class*="SubjectAndPriceStyles__SubjectsText"]')
-                        title = title_element.text
-                        logger.debug(f"Заказ {i+1}: Заголовок - {title[:50]}...")
-                    except:
-                        title = 'Без названия'
-                        logger.warning(f"Заказ {i+1}: Заголовок не найден")
+                        # Если элемент - ссылка, ищем заголовок в родительском контейнере или в самой ссылке
+                        if element.tag_name.lower() == 'a':
+                            # Пробуем найти заголовок в родительском контейнере
+                            try:
+                                parent = element.find_element(By.XPATH, './ancestor::div[contains(@class, "OrderSnippet") or contains(@class, "SnippetBody")]')
+                                title_element = parent.find_element(By.CSS_SELECTOR, 'h3[class*="SubjectAndPriceStyles__SubjectsText"], h3[class*="SubjectsText"], [class*="SubjectsText"]')
+                                title = title_element.text
+                            except:
+                                # Если не нашли в родителе, пробуем aria-label или текст ссылки
+                                try:
+                                    aria_label = element.get_attribute('aria-label')
+                                    if aria_label:
+                                        title = aria_label
+                                except:
+                                    pass
+                        else:
+                            # Если элемент - контейнер, ищем заголовок внутри
+                            title_element = element.find_element(By.CSS_SELECTOR, 'h3[class*="SubjectAndPriceStyles__SubjectsText"], h3[class*="SubjectsText"], [class*="SubjectsText"]')
+                            title = title_element.text
+                        
+                        if title and title != 'Без названия':
+                            logger.debug(f"Заказ {i+1}: Заголовок - {title[:50]}...")
+                    except Exception as e:
+                        logger.warning(f"Заказ {i+1}: Заголовок не найден: {str(e)}")
+                    
+                    # Получаем данные заказа (бюджет, имя, локация, дата)
+                    # Если элемент - ссылка, ищем данные в родительском контейнере
+                    search_container = element
+                    if element.tag_name.lower() == 'a':
+                        try:
+                            # Ищем родительский контейнер заказа
+                            search_container = element.find_element(By.XPATH, './ancestor::div[contains(@class, "OrderSnippet") or contains(@class, "SnippetBody") or contains(@data-testid, "ORDERS_BOARD")]')
+                        except:
+                            # Если не нашли родителя, используем сам элемент
+                            pass
                     
                     # Получаем бюджет
+                    budget = ''
                     try:
-                        # Ищем бюджет по точному паттерну класса
-                        budget_element = element.find_element(By.CSS_SELECTOR, '[class*="SubjectAndPriceStyles__PriceLine"], [class*="PriceValue"]')
+                        budget_element = search_container.find_element(By.CSS_SELECTOR, '[class*="SubjectAndPriceStyles__PriceLine"], [class*="PriceValue"], [class*="Price"]')
                         budget = budget_element.text
                     except:
-                        budget = ''
+                        pass
                     
                     # Получаем имя заказчика
+                    client_name = ''
                     try:
-                        # Ищем имя клиента по точному паттерну класса
-                        client_element = element.find_element(By.CSS_SELECTOR, '[class*="StatusAndClientInfoStyles__Name"]')
+                        # Пробуем найти по классу
+                        client_element = search_container.find_element(By.CSS_SELECTOR, '[class*="StatusAndClientInfoStyles__Name"], [class*="Name"]')
                         client_name = client_element.text
                     except:
-                        client_name = ''
+                        # Если не нашли по классу, пробуем найти span с текстом через XPath
+                        try:
+                            client_element = search_container.find_element(By.XPATH, './/span[contains(text(), "Владислав") or contains(text(), "Татьяна") or contains(text(), "Азеке") or contains(text(), "Вероника") or contains(text(), "Наталья")]')
+                            client_name = client_element.text
+                        except:
+                            pass
                     
                     # Получаем локацию
+                    location = 'Не указана'
                     try:
-                        # Ищем локацию по точному паттерну класса
-                        location_element = element.find_element(By.CSS_SELECTOR, '[class*="PrefixText"]')
-                        location = location_element.text
+                        location_element = search_container.find_element(By.CSS_SELECTOR, '[class*="PrefixText"], [class*="Location"], [aria-label*="Дистанционно"]')
+                        location = location_element.text or location_element.get_attribute('aria-label') or 'Не указана'
                     except:
-                        location = 'Не указана'
+                        pass
                     
                     # Получаем дату публикации
+                    date_posted = 'Не указано'
                     try:
-                        # Ищем дату по точному паттерну класса
-                        date_element = element.find_element(By.CSS_SELECTOR, '[class*="Date__DateText"]')
+                        date_element = search_container.find_element(By.CSS_SELECTOR, '[class*="Date__DateText"], [class*="DateText"], [class*="Date"]')
                         date_posted = date_element.text
                     except:
-                        date_posted = 'Не указано'
+                        pass
                     
                     # Получаем ссылку на заказ
                     order_link = None
@@ -431,12 +515,21 @@ async def get_orders(driver):
                                 break
                     
                     # Получаем основную информацию
+                    main_info = ''
                     try:
-                        # Ищем основную информацию по точному паттерну класса
-                        main_info_element = element.find_element(By.CSS_SELECTOR, '[class*="SnippetBodyStyles__MainInfo"]')
-                        main_info = main_info_element.text
+                        # Если элемент - ссылка, ищем информацию в родительском контейнере
+                        if element.tag_name.lower() == 'a':
+                            try:
+                                parent = element.find_element(By.XPATH, './ancestor::div[contains(@class, "OrderSnippet") or contains(@class, "SnippetBody")]')
+                                main_info_element = parent.find_element(By.CSS_SELECTOR, '[class*="SnippetBodyStyles__MainInfo"], [class*="MainInfo"]')
+                                main_info = main_info_element.text
+                            except:
+                                pass
+                        else:
+                            main_info_element = search_container.find_element(By.CSS_SELECTOR, '[class*="SnippetBodyStyles__MainInfo"], [class*="MainInfo"]')
+                            main_info = main_info_element.text
                     except:
-                        main_info = ''
+                        pass
                     
                     # Создаем объект заказа
                     order_data = {
@@ -593,7 +686,9 @@ class OrderProcessor:
     def is_order_recent(self, date_posted):
         """Проверяет, не слишком ли старый заказ"""
         if not date_posted or date_posted == 'Не указано':
-            return False
+            # Если дата не указана, считаем заказ новым (чтобы не пропустить)
+            logger.debug("Дата публикации не указана, считаем заказ новым")
+            return True
             
         # Парсим время публикации
         time_patterns = {
@@ -608,13 +703,22 @@ class OrderProcessor:
             match = re.search(pattern, date_posted, re.IGNORECASE)
             if match:
                 try:
-                    time_diff = time_func(match.group(1))
-                    return time_diff <= timedelta(hours=self.max_order_age_hours)
-                except:
+                    if pattern == r'сегодня':
+                        time_diff = timedelta(hours=24)
+                    elif pattern == r'вчера':
+                        time_diff = timedelta(days=1)
+                    else:
+                        time_diff = time_func(match.group(1))
+                    is_recent = time_diff <= timedelta(hours=self.max_order_age_hours)
+                    logger.debug(f"Заказ с датой '{date_posted}': разница {time_diff}, новый: {is_recent}")
+                    return is_recent
+                except Exception as e:
+                    logger.debug(f"Ошибка при парсинге даты '{date_posted}' по паттерну '{pattern}': {e}")
                     continue
         
-        # Если не удалось распарсить, считаем заказ старым
-        return False
+        # Если не удалось распарсить, считаем заказ новым (чтобы не пропустить)
+        logger.warning(f"Не удалось распарсить дату '{date_posted}', считаем заказ новым")
+        return True
     
     def is_new_order(self, order_id, date_posted):
         """Проверяет, является ли заказ новым"""

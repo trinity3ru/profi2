@@ -118,6 +118,40 @@ processed_orders.json
 *.ico
 *.svg
 
+# HTML файлы с данными страниц (могут содержать чувствительную информацию)
+*.html
+login_page_source.html
+orders_page.html
+orders_page_error.html
+
+# Скриншоты ошибок
+*_error.png
+*_error.jpg
+auth_error.png
+login_field_error.png
+password_field_error.png
+submit_button_error.png
+orders_error.png
+orders_page_error.png
+webdriver_error.png
+unexpected_error.png
+
 # Конфигурационные файлы с секретами
 config_local.py
 secrets.py
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Временные файлы парсера
+*.tmp
+*.temp
+
+# Личные настройки фильтров (плюс/минус слова)
+excluded_words.txt
+included_words.txt
+storage/filter_config.json
+storage/filter_config.py

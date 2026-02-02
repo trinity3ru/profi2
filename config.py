@@ -91,9 +91,29 @@ EXCLUDED_KEYWORDS = get_env_variable('EXCLUDED_KEYWORDS', '').split(',')
 INCLUDED_KEYWORDS = get_env_variable('INCLUDED_KEYWORDS', '').split(',')
 
 # Селекторы для авторизации Profi.ru
-LOGIN_FIELD_SELECTOR = 'input.login-form__input-login'
-PASSWORD_FIELD_SELECTOR = 'input.login-form__input-password'
-SUBMIT_BUTTON_SELECTOR = 'a.ui-button_primary'
+# Рабочие селекторы (найдены эмпирически при тестировании)
+LOGIN_FIELD_SELECTOR = 'input[data-testid*="login"]'  # Рабочий селектор
+PASSWORD_FIELD_SELECTOR = 'input[type="password"]'     # Рабочий селектор
+SUBMIT_BUTTON_SELECTOR = 'button[data-testid="enter_with_sms_btn"]'  # Рабочий селектор
+
+# Fallback-селекторы на случай изменения структуры (используются только если основные не работают)
+LOGIN_FIELD_FALLBACK = [
+    'input[data-testid*="phone"]',
+    'input[data-testid*="email"]',
+    'input[type="tel"]',
+    'input[type="email"]'
+]
+
+PASSWORD_FIELD_FALLBACK = [
+    'input[data-testid*="password"]',
+    'input[name*="password"]'
+]
+
+SUBMIT_BUTTON_FALLBACK = [
+    'button[data-testid*="submit"]',
+    'button[data-testid*="enter"]',
+    'button[type="submit"]'
+]
 
 # Таймаут ожидания в секундах
 REQUEST_TIMEOUT_SECONDS = 20
