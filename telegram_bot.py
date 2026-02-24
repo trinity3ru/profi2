@@ -186,6 +186,12 @@ class ProfiBot:
             # Ограничиваем длину дополнительной информации
             additional_info = self.truncate_text(additional_info, 300)
             message_parts.append(f"\nℹ️ *Дополнительная информация:*\n{additional_info}\n")
+
+        # Добавляем плюс-слова, по которым заказ прошел фильтр
+        matched_words = order.get('matched_included_words', [])
+        if matched_words:
+            words_text = ', '.join(matched_words)
+            message_parts.append(f"\n✅ Ключевые слова: {words_text}\n")
         
         # Добавляем локацию и дату публикации
         message_parts.extend([

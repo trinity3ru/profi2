@@ -1,7 +1,16 @@
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from orders import get_orders
 from telegram_bot import ProfiBot
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, reload_config, PROFI_LOGIN, PROFI_PASSWORD, PARSE_INTERVAL
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+    reload_config,
+    PROFI_LOGIN,
+    PROFI_PASSWORD,
+    PARSE_INTERVAL,
+    SELENIUM_PAGE_LOAD_TIMEOUT
+)
 import asyncio
 import shutil
 import logging
@@ -107,11 +116,26 @@ class ProfiApp:
                 
             # Переходим на страницу заказов
             try:
+                # Устанавливаем таймаут загрузки страницы заказов
+                self.driver.set_page_load_timeout(SELENIUM_PAGE_LOAD_TIMEOUT)
                 self.driver.get(ORDERS_URL)
                 # Ждем загрузки страницы
                 WebDriverWait(self.driver, 10).until(
                     lambda d: 'Заказы' in d.title and d.execute_script('return document.readyState') == 'complete'
                 )
+            except TimeoutException as e:
+                logger.warning(
+                    "Таймаут при переходе на страницу заказов. "
+                    "Пробуем продолжить работу с текущим состоянием страницы."
+                )
+                try:
+                    if 'Заказы' not in self.driver.title:
+                        logger.error("Страница заказов не подтвердилась после таймаута")
+                        self.driver.save_screenshot('orders_page_error.png')
+                        return
+                except Exception:
+                    self.driver.save_screenshot('orders_page_error.png')
+                    return
             except Exception as e:
                 logger.error(f"Ошибка при переходе на страницу заказов: {str(e)}")
                 self.driver.save_screenshot('orders_page_error.png')

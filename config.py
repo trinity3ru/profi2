@@ -83,7 +83,7 @@ REQUEST_TIMEOUT = 30
 
 # Настройки Selenium
 SELENIUM_IMPLICIT_WAIT = 5
-SELENIUM_PAGE_LOAD_TIMEOUT = 20
+SELENIUM_PAGE_LOAD_TIMEOUT = 30
 
 # Фильтры для заявок
 MIN_BUDGET = int(get_env_variable('MIN_BUDGET', '0'))
